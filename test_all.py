@@ -18,7 +18,7 @@ def run_test_suite(name, script):
             [sys.executable, script],
             capture_output=True,
             text=True,
-            timeout=60
+            timeout=30  # Reduced from 60 to 30 seconds
         )
         
         print(result.stdout)
