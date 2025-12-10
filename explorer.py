@@ -756,19 +756,40 @@ class ExplorerApp(App):
         pane.update_file_list(path)
 
     def action_delete_file(self) -> None:
-        pane = self.query_one("FilePane:focus-within", FilePane)
-        if pane:
-            pane.action_delete_file()
+        focused = self.query("FilePane:focus-within")
+        if focused:
+            pane = focused.first()
+        else:
+            try:
+                pane = self.query_one("#left-pane", FilePane)
+            except Exception:
+                return
+
+        pane.action_delete_file()
 
     def action_rename_file(self) -> None:
-        pane = self.query_one("FilePane:focus-within", FilePane)
-        if pane:
-            pane.action_rename_file()
+        focused = self.query("FilePane:focus-within")
+        if focused:
+            pane = focused.first()
+        else:
+            try:
+                pane = self.query_one("#left-pane", FilePane)
+            except Exception:
+                return
+
+        pane.action_rename_file()
             
     def action_go_up(self) -> None:
-        pane = self.query_one("FilePane:focus-within", FilePane)
-        if pane:
-            pane.action_go_up()
+        focused = self.query("FilePane:focus-within")
+        if focused:
+            pane = focused.first()
+        else:
+            try:
+                pane = self.query_one("#left-pane", FilePane)
+            except Exception:
+                return
+
+        pane.action_go_up()
 
     def action_open_item(self) -> None:
         focused = self.query("FilePane:focus-within")
