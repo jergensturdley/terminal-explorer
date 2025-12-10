@@ -931,7 +931,8 @@ class ExplorerApp(App):
                 os.startfile(file_path)
                 self.notify(f"Opened with default program")
             elif app_choice == "browse":
-                subprocess.Popen(f'rundll32.exe shell32.dll,OpenAs_RunDLL "{file_path}"', shell=True)
+                # Use list instead of shell=True to prevent shell injection
+                subprocess.Popen(["rundll32.exe", "shell32.dll,OpenAs_RunDLL", file_path])
             elif app_choice in app_map:
                 app_exe = app_map[app_choice]
                 subprocess.Popen([app_exe, file_path])
