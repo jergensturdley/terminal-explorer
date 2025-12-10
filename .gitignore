@@ -120,3 +120,15 @@ dmypy.json
 #Ignore vscode AI rules
 .github\instructions\codacy.instructions.md
 .github/instructions/codacy.instructions.md
+
+# Common editor, OS and temporary files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Wheel / build metadata
+pip-wheel-metadata/
+
