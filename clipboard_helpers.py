@@ -1,22 +1,14 @@
-import subprocess
-from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Header, Footer, DirectoryTree, DataTable, Static, Label, Input, Button, ListItem, ListView, Tree, RichLog
-from textual.widgets.tree import TreeNode
-from textual.screen import ModalScreen, Screen
-from textual.binding import Binding
-from textual import events
-from textual.message import Message
+from __future__ import annotations
+
 import os
 import shutil
-import datetime
-import send2trash
 
 class ClipboardManager:
     """Manages file clipboard operations (copy/cut/paste)."""
     def __init__(self):
         self.items: list[str] = []
         self.operation: str = ""  # "copy" or "cut"
+        self.last_errors: list[tuple[str, Exception]] = []
     
     def copy(self, paths: list[str]) -> None:
         self.items = paths.copy()
@@ -29,6 +21,7 @@ class ClipboardManager:
     def paste(self, destination: str) -> list[tuple[str, str]]:
         """Paste items to destination. Returns list of (source, dest) tuples."""
         results = []
+        self.last_errors = []
         for item in self.items:
             if not os.path.exists(item):
                 continue
@@ -54,8 +47,8 @@ class ClipboardManager:
                     shutil.move(item, dest_path)
                 
                 results.append((item, dest_path))
-            except Exception:
-                pass
+            except Exception as e:
+                self.last_errors.append((item, e))
         
         # Clear clipboard after cut operation
         if self.operation == "cut":

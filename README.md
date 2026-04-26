@@ -41,8 +41,17 @@ If your Linux distribution uses Wayland or does not already provide clipboard he
 
 ## Features
 - Dual pane file navigation
+- Back/forward/up/refresh navigation controls
+- Toggle hidden files with `h`
 - Clipboard integration
 - Custom icon and Windows executable builds
+
+## Testing
+```bash
+python test_all.py
+```
+
+The active test suite uses `pytest` and lives in `tests/`. Older script-style tests are kept in `legacy_tests/` for reference.
 
 ## Building
 Two build options are provided:

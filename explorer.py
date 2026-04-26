@@ -1,12 +1,13 @@
+from __future__ import annotations
+
 import subprocess
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Header, Footer, DirectoryTree, DataTable, Static, Label, Input, Button, ListItem, ListView, Tree, RichLog
+from textual.widgets import Header, Footer, DataTable, Static, Label, Input, Button, Tree
 from textual.widgets.tree import TreeNode
-from textual.screen import ModalScreen, Screen
+from textual.screen import ModalScreen
 from textual.binding import Binding
 from textual import events
-from textual.message import Message
 import os
 import shutil
 import datetime
@@ -144,7 +145,7 @@ class SystemTree(Tree[dict]):
                     node.add(f"📁 {entry.name}", data={"path": entry.path, "is_dir": True, "loaded": False}, allow_expand=True)
             node.data["loaded"] = True
         except PermissionError:
-            pass
+            node.data["loaded"] = True
 
     def on_click(self, event: events.Click) -> None:
         if event.button == 3: 
@@ -296,6 +297,7 @@ class FilePane(Container):
         self.history: list[str] = []
         self.history_index: int = -1
         self.current_path = os.getcwd()
+        self.show_hidden = False
         self.update_file_list(self.current_path)
 
     def on_file_double_clicked(self, path: str) -> None:
@@ -361,7 +363,8 @@ class FilePane(Container):
                     try:
                         sel = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
                         if os.path.isdir(sel): path = sel
-                    except: pass
+                    except Exception:
+                        path = self.current_path
                 self.app.action_open_external_terminal(path)
         
         self.app.push_screen(ContextMenu(items, x, y), handle_action)
@@ -371,7 +374,9 @@ class FilePane(Container):
             if name:
                 try:
                     path = os.path.join(self.current_path, name)
-                    with open(path, 'w') as f: pass
+                    open(path, 'a').close()
+                    if hasattr(self.app, "history"):
+                        self.app.history.record("create_file", path=path)
                     self.app.notify(f"Created file: {name}")
                     self.update_file_list(self.current_path, add_to_history=False)
                 except Exception as e:
@@ -398,6 +403,8 @@ class FilePane(Container):
             else:
                 shutil.copy2(path, new_path)
                 
+            if hasattr(self.app, "history"):
+                self.app.history.record("duplicate", source=path, dest=new_path)
             self.app.notify(f"Duplicated to: {os.path.basename(new_path)}")
             self.update_file_list(self.current_path, add_to_history=False)
         except Exception as e:
@@ -409,7 +416,8 @@ class FilePane(Container):
         try:
             path = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
             self.app.push_screen(PropertiesScreen(path))
-        except: pass
+        except Exception as e:
+            self.app.notify(f"Error showing properties: {e}", severity="error")
 
     def action_new_folder(self) -> None:
         def handle_input(name: str | None) -> None:
@@ -417,6 +425,8 @@ class FilePane(Container):
                 try:
                     path = os.path.join(self.current_path, name)
                     os.makedirs(path, exist_ok=False)
+                    if hasattr(self.app, "history"):
+                        self.app.history.record("create_folder", path=path)
                     self.app.notify(f"Created: {name}")
                     self.update_file_list(self.current_path, add_to_history=False)
                 except Exception as e:
@@ -430,7 +440,8 @@ class FilePane(Container):
         try:
             path = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
             self.on_file_double_clicked(path)
-        except: pass
+        except Exception as e:
+            self.app.notify(f"Error opening item: {e}", severity="error")
 
     def action_copy_path(self) -> None:
         table = self.query_one(FileList)
@@ -439,7 +450,8 @@ class FilePane(Container):
             path = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
             self.app.copy_to_clipboard(path)
             self.app.notify(f"Copied path: {path}")
-        except: pass
+        except Exception as e:
+            self.app.notify(f"Error copying path: {e}", severity="error")
 
     def action_delete_file(self) -> None:
         table = self.query_one(FileList)
@@ -467,8 +479,8 @@ class FilePane(Container):
                         self.app.open_file_with_app(path, app_choice)
                 
                 self.app.push_screen(OpenWithScreen(path), handle_app_choice)
-        except:
-            pass
+        except Exception as e:
+            self.app.notify(f"Error preparing Open With: {e}", severity="error")
 
     def action_rename_file(self) -> None:
         """Rename the selected file."""
@@ -476,7 +488,8 @@ class FilePane(Container):
         if not table.row_count: return
         try:
             path = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
-        except: return
+        except Exception:
+            return
 
         def handle_rename(new_name: str | None) -> None:
             if new_name:
@@ -484,6 +497,8 @@ class FilePane(Container):
                     dirname = os.path.dirname(path)
                     new_path = os.path.join(dirname, new_name)
                     os.rename(path, new_path)
+                    if hasattr(self.app, "history"):
+                        self.app.history.record("rename", old_path=path, new_path=new_path)
                     self.app.notify(f"Renamed to: {new_name}")
                     self.update_file_list(self.current_path, add_to_history=False)
                 except Exception as e:
@@ -512,6 +527,13 @@ class FilePane(Container):
         """Refresh this pane's current directory."""
         self.update_file_list(self.current_path, add_to_history=False)
 
+    def action_toggle_hidden(self) -> None:
+        """Toggle display of hidden files in this pane."""
+        self.show_hidden = not self.show_hidden
+        state = "shown" if self.show_hidden else "hidden"
+        self.app.notify(f"Hidden files {state}")
+        self.update_file_list(self.current_path, add_to_history=False)
+
     def action_open_item(self) -> None:
         self.action_open_selected()
 
@@ -538,8 +560,10 @@ class FilePane(Container):
             self.query_one("#back", Button).disabled = self.history_index <= 0
             self.query_one("#forward", Button).disabled = self.history_index >= len(self.history) - 1
             self.query_one("#address-bar", Input).value = path
-        except:
-            pass 
+        except Exception:
+            toolbar_available = False
+        else:
+            toolbar_available = True
 
         table = self.query_one(FileList)
         table.clear()
@@ -550,6 +574,8 @@ class FilePane(Container):
             
             for entry in entries:
                 try:
+                    if not self.show_hidden and self.is_hidden(entry):
+                        continue
                     stats = entry.stat()
                     size = self.format_size(stats.st_size) if entry.is_file() else ""
                     modified = datetime.datetime.fromtimestamp(stats.st_mtime).strftime("%Y-%m-%d %H:%M")
@@ -557,12 +583,23 @@ class FilePane(Container):
                     icon = "📁" if entry.is_dir() else "📄"
                     
                     table.add_row(f"{icon} {entry.name}", size, modified, file_type, key=entry.path)
-                except:
-                    pass
+                except Exception:
+                    continue
         except PermissionError:
             self.app.notify(f"Permission denied: {path}", severity="error")
         except Exception as e:
             self.app.notify(f"Error reading directory: {e}", severity="error")
+
+    def is_hidden(self, entry: os.DirEntry) -> bool:
+        """Return True if a directory entry should be considered hidden."""
+        if entry.name.startswith("."):
+            return True
+        if os.name == "nt":
+            try:
+                return bool(entry.stat().st_file_attributes & 0x2)
+            except Exception:
+                return False
+        return False
 
     def format_size(self, size: int) -> str:
         for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
@@ -729,6 +766,10 @@ class ExplorerApp(App):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("d", "toggle_dark", "Toggle Dark Mode"),
+        Binding("h", "toggle_hidden", "Hidden Files"),
+        Binding("ctrl+r", "refresh", "Refresh"),
+        Binding("alt+left", "back", "Back"),
+        Binding("alt+right", "forward", "Forward"),
         Binding("backspace", "go_up", "Go Up"),
         Binding("delete", "delete_file", "Delete"),
         Binding("f2", "rename_file", "Rename"),
@@ -807,6 +848,11 @@ class ExplorerApp(App):
         if pane:
             pane.action_refresh()
 
+    def action_toggle_hidden(self) -> None:
+        pane = self.get_active_pane()
+        if pane:
+            pane.action_toggle_hidden()
+
     def action_open_item(self) -> None:
         pane = self.get_active_pane()
         if pane:
@@ -854,8 +900,8 @@ class ExplorerApp(App):
             
             redo_btn = self.query_one("#redo", Button)
             redo_btn.disabled = not self.history.can_redo()
-        except:
-            pass
+        except Exception:
+            return
     
     def action_copy_files(self) -> None:
         """Copy selected files to clipboard."""
@@ -872,8 +918,8 @@ class ExplorerApp(App):
             self.file_clipboard.copy([sel])
             self.notify(f"Copied: {os.path.basename(sel)}")
             self.update_toolbar_state()
-        except:
-            pass
+        except Exception as e:
+            self.notify(f"Copy failed: {e}", severity="error")
     
     def action_cut_files(self) -> None:
         """Cut selected files to clipboard."""
@@ -890,8 +936,8 @@ class ExplorerApp(App):
             self.file_clipboard.cut([sel])
             self.notify(f"Cut: {os.path.basename(sel)}")
             self.update_toolbar_state()
-        except:
-            pass
+        except Exception as e:
+            self.notify(f"Cut failed: {e}", severity="error")
     
     def action_paste_files(self) -> None:
         """Paste files from clipboard to current directory."""
@@ -907,6 +953,28 @@ class ExplorerApp(App):
             self.notify(f"Pasted {len(results)} item(s)")
             pane.update_file_list(dest, add_to_history=False)
             self.update_toolbar_state()
+        elif self.file_clipboard.last_errors:
+            self.notify(f"Paste failed for {len(self.file_clipboard.last_errors)} item(s)", severity="error")
+
+    def _remove_path(self, path: str) -> None:
+        """Remove a file or directory if it exists."""
+        try:
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+            elif os.path.exists(path):
+                os.remove(path)
+        except Exception as e:
+            self.notify(f"Could not remove {path}: {e}", severity="error")
+
+    def _copy_path(self, source: str, destination: str) -> None:
+        """Copy a file or directory to an exact destination."""
+        try:
+            if os.path.isdir(source):
+                shutil.copytree(source, destination)
+            else:
+                shutil.copy2(source, destination)
+        except Exception as e:
+            self.notify(f"Could not copy {source}: {e}", severity="error")
     
     def action_undo(self) -> None:
         """Undo last operation."""
@@ -916,20 +984,25 @@ class ExplorerApp(App):
         
         if op["op"] == "paste":
             for _, dest in op["items"]:
-                try:
-                    if os.path.isdir(dest):
-                        shutil.rmtree(dest)
-                    else:
-                        os.remove(dest)
-                except:
-                    pass
+                self._remove_path(dest)
             self.notify("Undone: Paste")
+        elif op["op"] in {"create_file", "create_folder"}:
+            self._remove_path(op["path"])
+            self.notify("Undone: Create")
+        elif op["op"] == "duplicate":
+            self._remove_path(op["dest"])
+            self.notify("Undone: Duplicate")
+        elif op["op"] == "rename":
+            try:
+                os.rename(op["new_path"], op["old_path"])
+                self.notify("Undone: Rename")
+            except Exception as e:
+                self.notify(f"Undo rename failed: {e}", severity="error")
         elif op["op"] == "delete":
             self.notify("Cannot undo delete (sent to trash)")
         
-        focused = self.query("FilePane:focus-within")
-        if focused:
-            pane = focused.first()
+        pane = self.get_active_pane()
+        if pane:
             pane.update_file_list(pane.current_path, add_to_history=False)
         
         self.update_toolbar_state()
@@ -942,18 +1015,26 @@ class ExplorerApp(App):
         
         if op["op"] == "paste":
             for src, dest in op["items"]:
-                try:
-                    if os.path.isdir(src):
-                        shutil.copytree(src, dest)
-                    else:
-                        shutil.copy2(src, dest)
-                except:
-                    pass
+                self._copy_path(src, dest)
             self.notify("Redone: Paste")
+        elif op["op"] == "create_file":
+            open(op["path"], "a").close()
+            self.notify("Redone: Create File")
+        elif op["op"] == "create_folder":
+            os.makedirs(op["path"], exist_ok=True)
+            self.notify("Redone: Create Folder")
+        elif op["op"] == "duplicate":
+            self._copy_path(op["source"], op["dest"])
+            self.notify("Redone: Duplicate")
+        elif op["op"] == "rename":
+            try:
+                os.rename(op["old_path"], op["new_path"])
+                self.notify("Redone: Rename")
+            except Exception as e:
+                self.notify(f"Redo rename failed: {e}", severity="error")
         
-        focused = self.query("FilePane:focus-within")
-        if focused:
-            pane = focused.first()
+        pane = self.get_active_pane()
+        if pane:
             pane.update_file_list(pane.current_path, add_to_history=False)
         
         self.update_toolbar_state()
@@ -988,22 +1069,23 @@ class ExplorerApp(App):
         creationflags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
         no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         
+        last_error: Exception | None = None
         try:
             subprocess.Popen(["wt.exe", "-d", target_path], shell=False, creationflags=no_window)
             self.notify("Opened Windows Terminal")
             return
-        except FileNotFoundError:
-            pass
-        except Exception:
-            pass
+        except FileNotFoundError as e:
+            last_error = e
+        except Exception as e:
+            last_error = e
 
         try:
             subprocess.Popen(["pwsh.exe", "-NoExit", "-Command", "Set-Location -LiteralPath $args[0]", target_path], 
                            shell=False, creationflags=creationflags)
             self.notify("Opened PowerShell")
             return
-        except Exception:
-            pass
+        except Exception as e:
+            last_error = e
 
         try:
             subprocess.Popen(["cmd.exe", "/k", "cd", "/d", target_path], 
@@ -1011,7 +1093,8 @@ class ExplorerApp(App):
             self.notify("Opened Command Prompt")
             return
         except Exception as e:
-            self.notify(f"Could not launch terminal: {e}", severity="error")
+            detail = e or last_error
+            self.notify(f"Could not launch terminal: {detail}", severity="error")
 
 if __name__ == "__main__":
     app = ExplorerApp()
