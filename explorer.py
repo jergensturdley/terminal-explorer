@@ -496,6 +496,22 @@ class FilePane(Container):
         if parent != self.current_path:
             self.update_file_list(parent)
 
+    def action_back(self) -> None:
+        """Navigate back in this pane's directory history."""
+        if self.history_index > 0:
+            self.history_index -= 1
+            self.update_file_list(self.history[self.history_index], add_to_history=False)
+
+    def action_forward(self) -> None:
+        """Navigate forward in this pane's directory history."""
+        if self.history_index < len(self.history) - 1:
+            self.history_index += 1
+            self.update_file_list(self.history[self.history_index], add_to_history=False)
+
+    def action_refresh(self) -> None:
+        """Refresh this pane's current directory."""
+        self.update_file_list(self.current_path, add_to_history=False)
+
     def action_open_item(self) -> None:
         self.action_open_selected()
 
@@ -747,54 +763,54 @@ class ExplorerApp(App):
             
         path = event.node.data["path"]
         
+        pane = self.get_active_pane()
+        if pane:
+            pane.update_file_list(path)
+
+    def get_active_pane(self) -> FilePane | None:
+        """Return the focused file pane, falling back to the left pane."""
         focused = self.query("FilePane:focus-within")
         if focused:
-            pane = focused.first()
-        else:
-            pane = self.query_one("#left-pane", FilePane)
-        
-        pane.update_file_list(path)
+            return focused.first()
+        try:
+            return self.query_one("#left-pane", FilePane)
+        except Exception:
+            return None
 
     def action_delete_file(self) -> None:
-        focused = self.query("FilePane:focus-within")
-        if focused:
-            pane = focused.first()
-        else:
-            try:
-                pane = self.query_one("#left-pane", FilePane)
-            except Exception:
-                return
-
-        pane.action_delete_file()
+        pane = self.get_active_pane()
+        if pane:
+            pane.action_delete_file()
 
     def action_rename_file(self) -> None:
-        focused = self.query("FilePane:focus-within")
-        if focused:
-            pane = focused.first()
-        else:
-            try:
-                pane = self.query_one("#left-pane", FilePane)
-            except Exception:
-                return
-
-        pane.action_rename_file()
+        pane = self.get_active_pane()
+        if pane:
+            pane.action_rename_file()
             
     def action_go_up(self) -> None:
-        focused = self.query("FilePane:focus-within")
-        if focused:
-            pane = focused.first()
-        else:
-            try:
-                pane = self.query_one("#left-pane", FilePane)
-            except Exception:
-                return
+        pane = self.get_active_pane()
+        if pane:
+            pane.action_go_up()
 
-        pane.action_go_up()
+    def action_back(self) -> None:
+        pane = self.get_active_pane()
+        if pane:
+            pane.action_back()
+
+    def action_forward(self) -> None:
+        pane = self.get_active_pane()
+        if pane:
+            pane.action_forward()
+
+    def action_refresh(self) -> None:
+        pane = self.get_active_pane()
+        if pane:
+            pane.action_refresh()
 
     def action_open_item(self) -> None:
-        focused = self.query("FilePane:focus-within")
-        if focused:
-            focused.first().action_open_item()
+        pane = self.get_active_pane()
+        if pane:
+            pane.action_open_item()
 
     def action_toggle_pane(self) -> None:
         right = self.query_one("#right-pane")
@@ -804,7 +820,15 @@ class ExplorerApp(App):
         """Handle toolbar button clicks."""
         button_id = event.button.id
         
-        if button_id == "copy":
+        if button_id == "back":
+            self.action_back()
+        elif button_id == "forward":
+            self.action_forward()
+        elif button_id == "up":
+            self.action_go_up()
+        elif button_id == "refresh":
+            self.action_refresh()
+        elif button_id == "copy":
             self.action_copy_files()
         elif button_id == "cut":
             self.action_cut_files()
@@ -835,11 +859,10 @@ class ExplorerApp(App):
     
     def action_copy_files(self) -> None:
         """Copy selected files to clipboard."""
-        focused = self.query("FilePane:focus-within")
-        if not focused:
+        pane = self.get_active_pane()
+        if not pane:
             return
         
-        pane = focused.first()
         table = pane.query_one(FileList)
         if not table.row_count:
             return
@@ -854,11 +877,10 @@ class ExplorerApp(App):
     
     def action_cut_files(self) -> None:
         """Cut selected files to clipboard."""
-        focused = self.query("FilePane:focus-within")
-        if not focused:
+        pane = self.get_active_pane()
+        if not pane:
             return
         
-        pane = focused.first()
         table = pane.query_one(FileList)
         if not table.row_count:
             return
@@ -873,11 +895,9 @@ class ExplorerApp(App):
     
     def action_paste_files(self) -> None:
         """Paste files from clipboard to current directory."""
-        focused = self.query("FilePane:focus-within")
-        if not focused:
-            pane = self.query_one("#left-pane", FilePane)
-        else:
-            pane = focused.first()
+        pane = self.get_active_pane()
+        if not pane:
+            return
         
         dest = pane.current_path
         results = self.file_clipboard.paste(dest)
@@ -963,12 +983,14 @@ class ExplorerApp(App):
 
     def action_open_external_terminal(self, path: str = None) -> None:
         """Launch Windows Terminal or PowerShell externally."""
-        target_path = path or self.query_one("#left-pane", FilePane).current_path
+        pane = self.get_active_pane()
+        target_path = path or (pane.current_path if pane else os.getcwd())
+        creationflags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+        no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         
         try:
-            subprocess.Popen(f'wt.exe -d "{target_path}"', shell=False, 
-                           creationflags=subprocess.CREATE_NO_WINDOW)
-            self.notify(f"Opened Windows Terminal")
+            subprocess.Popen(["wt.exe", "-d", target_path], shell=False, creationflags=no_window)
+            self.notify("Opened Windows Terminal")
             return
         except FileNotFoundError:
             pass
@@ -976,17 +998,17 @@ class ExplorerApp(App):
             pass
 
         try:
-            subprocess.Popen(f'pwsh.exe -NoExit -Command "cd \'{target_path}\'"', 
-                           shell=False, creationflags=subprocess.CREATE_NEW_CONSOLE)
-            self.notify(f"Opened PowerShell")
+            subprocess.Popen(["pwsh.exe", "-NoExit", "-Command", "Set-Location -LiteralPath $args[0]", target_path], 
+                           shell=False, creationflags=creationflags)
+            self.notify("Opened PowerShell")
             return
         except Exception:
             pass
 
         try:
-            subprocess.Popen(f'cmd.exe /k "cd /d {target_path}"', 
-                           shell=False, creationflags=subprocess.CREATE_NEW_CONSOLE)
-            self.notify(f"Opened Command Prompt")
+            subprocess.Popen(["cmd.exe", "/k", "cd", "/d", target_path], 
+                           shell=False, creationflags=creationflags)
+            self.notify("Opened Command Prompt")
             return
         except Exception as e:
             self.notify(f"Could not launch terminal: {e}", severity="error")
