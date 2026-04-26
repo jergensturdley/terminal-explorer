@@ -110,6 +110,11 @@ chmod +x build_macos_dmg.sh
 
 This rebuilds the app wrapper if needed and creates `dist/terminal-explorer-macos.dmg` containing `Terminal Explorer.app` and an `Applications` shortcut.
 
+If macOS claims the app is corrupted:
+```
+xattr -d com.apple.quarantine '/Applications/Terminal Explorer.app'
+```
+
 The generated executables are located in the `dist` directory.
 
 ## License
