@@ -10,9 +10,21 @@ from textual.binding import Binding
 from textual import events
 import os
 import shutil
+import sys
 import datetime
 import send2trash
 from clipboard_helpers import ClipboardManager, OperationHistory
+
+
+def resolve_initial_path(argv: list[str]) -> str:
+    """Resolve the first usable launch path from command-line arguments."""
+    for raw_path in argv[1:]:
+        candidate = os.path.abspath(os.path.expanduser(raw_path))
+        if os.path.isdir(candidate):
+            return candidate
+        if os.path.isfile(candidate):
+            return os.path.dirname(candidate)
+    return os.getcwd()
 
 class ResizeHandle(Static):
     def __init__(self, target_id: str, vertical: bool = False, **kwargs):
@@ -111,18 +123,33 @@ class SystemTree(Tree[dict]):
                 icon = "🏠" if name=="Home" else "📁"
                 favorites.add(f"{icon} {name}", data={"path": path, "is_dir": True, "loaded": False}, allow_expand=True)
 
-        drives = self.root.add("DISK Drives", expand=True)
-        available_drives = ["C:\\"]
-        
-        import string
-        for letter in string.ascii_uppercase:
-            if letter == "C": continue
-            path = f"{letter}:\\"
-            if os.path.exists(path):
-                available_drives.append(path)
-                
-        for drive in available_drives:
-            drives.add(f"💾 {drive}", data={"path": drive, "is_dir": True, "loaded": False}, allow_expand=True)
+        roots = self.root.add("DISK Drives", expand=True)
+        available_roots: list[str] = []
+
+        if os.name == "nt":
+            available_roots.append("C:\\")
+            import string
+            for letter in string.ascii_uppercase:
+                if letter == "C":
+                    continue
+                path = f"{letter}:\\"
+                if os.path.exists(path):
+                    available_roots.append(path)
+        else:
+            available_roots.append(os.path.sep)
+            for extra_root in ("/Volumes", "/mnt", "/media"):
+                if not os.path.isdir(extra_root):
+                    continue
+                for entry in sorted(os.scandir(extra_root), key=lambda item: item.name.lower()):
+                    if entry.is_dir():
+                        available_roots.append(entry.path)
+
+        for root_path in available_roots:
+            roots.add(
+                f"💾 {root_path}",
+                data={"path": root_path, "is_dir": True, "loaded": False},
+                allow_expand=True,
+            )
 
     def on_tree_node_expanded(self, event: Tree.NodeExpanded) -> None:
         node = event.node
@@ -242,16 +269,27 @@ class OpenWithScreen(ModalScreen[str]):
     def get_common_apps(self) -> list[tuple[str, str, str]]:
         """Get common applications based on file extension."""
         apps = []
-        
-        if self.file_ext in ['.txt', '.md', '.py', '.js', '.html', '.css', '.json', '.xml']:
-            apps.append(("notepad", "Notepad", "notepad.exe"))
-            apps.append(("vscode", "VS Code", "code"))
-        
-        if self.file_ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp']:
-            apps.append(("paint", "Paint", "mspaint.exe"))
-        
-        if self.file_ext == '.pdf':
-            apps.append(("edge", "Microsoft Edge", "msedge.exe"))
+
+        if os.name == "nt":
+            if self.file_ext in ['.txt', '.md', '.py', '.js', '.html', '.css', '.json', '.xml']:
+                apps.append(("notepad", "Notepad", "notepad.exe"))
+                apps.append(("vscode", "VS Code", "code"))
+
+            if self.file_ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp']:
+                apps.append(("paint", "Paint", "mspaint.exe"))
+
+            if self.file_ext == '.pdf':
+                apps.append(("edge", "Microsoft Edge", "msedge.exe"))
+        elif sys.platform == "darwin":
+            if self.file_ext in ['.txt', '.md', '.py', '.js', '.html', '.css', '.json', '.xml']:
+                apps.append(("textedit", "TextEdit", "TextEdit"))
+                apps.append(("vscode", "VS Code", "code"))
+
+            if self.file_ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.pdf']:
+                apps.append(("preview", "Preview", "Preview"))
+        else:
+            if self.file_ext in ['.txt', '.md', '.py', '.js', '.html', '.css', '.json', '.xml']:
+                apps.append(("vscode", "VS Code", "code"))
         
         return apps
     
@@ -296,7 +334,7 @@ class FilePane(Container):
     def on_mount(self) -> None:
         self.history: list[str] = []
         self.history_index: int = -1
-        self.current_path = os.getcwd()
+        self.current_path = self.app.initial_path
         self.show_hidden = False
         self.update_file_list(self.current_path)
 
@@ -304,11 +342,7 @@ class FilePane(Container):
         if os.path.isdir(path):
             self.update_file_list(path)
         else:
-            try:
-                os.startfile(path)
-                self.app.notify(f"Opened {path}")
-            except Exception as e:
-                self.app.notify(f"Error opening file: {e}", severity="error")
+            self.app.open_file_with_app(path, "default")
 
     def on_click(self, event: events.Click) -> None:
         if event.button == 3: 
@@ -609,6 +643,10 @@ class FilePane(Container):
         return f"{size:.1f} PB"
 
 class ExplorerApp(App):
+    def __init__(self, initial_path: str | None = None):
+        super().__init__()
+        self.initial_path = initial_path if initial_path and os.path.isdir(initial_path) else os.getcwd()
+
     CSS = """
     Screen {
         layout: horizontal;
@@ -1041,34 +1079,77 @@ class ExplorerApp(App):
 
     def open_file_with_app(self, file_path: str, app_choice: str) -> None:
         """Open a file with the specified application."""
-        app_map = {
-            "notepad": "notepad.exe",
-            "vscode": "code",
-            "paint": "mspaint.exe",
-            "edge": "msedge.exe"
-        }
-        
         try:
             if app_choice == "default":
-                os.startfile(file_path)
-                self.notify(f"Opened with default program")
+                self._open_with_default_app(file_path)
+                self.notify("Opened with default program")
             elif app_choice == "browse":
-                # Use list instead of shell=True to prevent shell injection
-                subprocess.Popen(["rundll32.exe", "shell32.dll,OpenAs_RunDLL", file_path])
-            elif app_choice in app_map:
-                app_exe = app_map[app_choice]
-                subprocess.Popen([app_exe, file_path])
+                if os.name == "nt":
+                    subprocess.Popen(["rundll32.exe", "shell32.dll,OpenAs_RunDLL", file_path])
+                else:
+                    self._open_with_default_app(file_path)
+                    self.notify("Opened with system app chooser")
+            else:
+                command = self._get_open_with_command(file_path, app_choice)
+                if not command:
+                    self.notify(f"No app mapping for {app_choice}", severity="error")
+                    return
+                subprocess.Popen(command)
                 self.notify(f"Opened with {app_choice}")
         except Exception as e:
             self.notify(f"Error opening file: {e}", severity="error")
 
+    def _open_with_default_app(self, file_path: str) -> None:
+        if os.name == "nt":
+            os.startfile(file_path)
+            return
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", file_path])
+            return
+        subprocess.Popen(["xdg-open", file_path])
+
+    def _get_open_with_command(self, file_path: str, app_choice: str) -> list[str] | None:
+        if os.name == "nt":
+            app_map = {
+                "notepad": ["notepad.exe", file_path],
+                "vscode": ["code", file_path],
+                "paint": ["mspaint.exe", file_path],
+                "edge": ["msedge.exe", file_path],
+            }
+            return app_map.get(app_choice)
+
+        if sys.platform == "darwin":
+            app_map = {
+                "textedit": ["open", "-a", "TextEdit", file_path],
+                "preview": ["open", "-a", "Preview", file_path],
+                "vscode": ["code", file_path],
+            }
+            return app_map.get(app_choice)
+
+        app_map = {
+            "vscode": ["code", file_path],
+        }
+        return app_map.get(app_choice)
+
     def action_open_external_terminal(self, path: str = None) -> None:
-        """Launch Windows Terminal or PowerShell externally."""
+        """Launch an external terminal for the current platform."""
         pane = self.get_active_pane()
         target_path = path or (pane.current_path if pane else os.getcwd())
+
+        if os.name == "nt":
+            self._open_windows_terminal(target_path)
+            return
+
+        if sys.platform == "darwin":
+            self._open_macos_terminal(target_path)
+            return
+
+        self._open_linux_terminal(target_path)
+
+    def _open_windows_terminal(self, target_path: str) -> None:
         creationflags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
         no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        
+
         last_error: Exception | None = None
         try:
             subprocess.Popen(["wt.exe", "-d", target_path], shell=False, creationflags=no_window)
@@ -1096,6 +1177,41 @@ class ExplorerApp(App):
             detail = e or last_error
             self.notify(f"Could not launch terminal: {detail}", severity="error")
 
+    def _open_macos_terminal(self, target_path: str) -> None:
+        last_error: Exception | None = None
+        for app_name in ("Terminal", "iTerm"):
+            try:
+                subprocess.Popen(["open", "-a", app_name, target_path])
+                self.notify(f"Opened {app_name}")
+                return
+            except Exception as e:
+                last_error = e
+
+        self.notify(f"Could not launch terminal: {last_error}", severity="error")
+
+    def _open_linux_terminal(self, target_path: str) -> None:
+        candidates = [
+            ("GNOME Terminal", ["gnome-terminal", f"--working-directory={target_path}"]),
+            ("Konsole", ["konsole", "--workdir", target_path]),
+            ("XFCE Terminal", ["xfce4-terminal", "--working-directory", target_path]),
+            ("Kitty", ["kitty", "--directory", target_path]),
+            ("Alacritty", ["alacritty", "--working-directory", target_path]),
+            ("WezTerm", ["wezterm", "start", "--cwd", target_path]),
+        ]
+
+        last_error: Exception | None = None
+        for label, command in candidates:
+            if not shutil.which(command[0]):
+                continue
+            try:
+                subprocess.Popen(command)
+                self.notify(f"Opened {label}")
+                return
+            except Exception as e:
+                last_error = e
+
+        self.notify(f"Could not launch terminal: {last_error or 'no supported terminal command found'}", severity="error")
+
 if __name__ == "__main__":
-    app = ExplorerApp()
+    app = ExplorerApp(initial_path=resolve_initial_path(sys.argv))
     app.run()

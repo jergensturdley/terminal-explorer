@@ -8,34 +8,58 @@ A Textual based terminal file explorer with dual pane support.
 - A terminal with Unicode support
 
 ## Run On macOS
-1. Create and activate a virtual environment:
+The verified macOS flow for this repository is to use the virtual environment's Python directly, which avoids shell-specific activation issues.
+
+Run these commands from the project root, where `requirements.txt` and `explorer.py` are located.
+
+1. Change into the project directory:
+   ```bash
+   cd /path/to/terminal-explorer
+   ```
+2. Create a virtual environment:
    ```bash
    python3 -m venv .venv
-   source .venv/bin/activate
    ```
-2. Install dependencies:
+3. Install dependencies:
    ```bash
-   python3 -m pip install -r requirements.txt
+   ./.venv/bin/python -m pip install -r requirements.txt
    ```
-3. Start the app:
+4. Start the app:
    ```bash
-   python3 explorer.py
+   ./.venv/bin/python explorer.py
    ```
 
+Optional activation commands:
+
+```bash
+# zsh or bash
+source .venv/bin/activate
+
+# fish
+source .venv/bin/activate.fish
+```
+
 ## Run On Linux
-1. Create and activate a virtual environment:
+Run these commands from the project root, where `requirements.txt` and `explorer.py` are located.
+
+1. Change into the project directory:
+   ```bash
+   cd /path/to/terminal-explorer
+   ```
+2. Create a virtual environment:
    ```bash
    python3 -m venv .venv
-   source .venv/bin/activate
    ```
-2. Install dependencies:
+3. Install dependencies:
    ```bash
-   python3 -m pip install -r requirements.txt
+   ./.venv/bin/python -m pip install -r requirements.txt
    ```
-3. Start the app:
+4. Start the app:
    ```bash
-   python3 explorer.py
+   ./.venv/bin/python explorer.py
    ```
+
+If you prefer activating the environment first, use `source .venv/bin/activate` for `bash` or `zsh`, or `source .venv/bin/activate.fish` for `fish`.
 
 If your Linux distribution uses Wayland or does not already provide clipboard helpers, install one of `wl-clipboard`, `xclip`, or `xsel` if clipboard actions do not work as expected in your terminal session.
 
@@ -63,6 +87,18 @@ Two build options are provided:
    ```powershell
    pyinstaller --onedir --console --icon=explorer.ico --name="Terminal Explorer Fast" explorer.py
    ```
+
+### macOS App Wrapper
+If you want a Launch Services `.app` bundle that can be launched from Finder and opened against folders, build the wrapper from the project root:
+
+```bash
+chmod +x build_macos_app.sh
+./build_macos_app.sh
+```
+
+This creates `dist/Terminal Explorer.app`. The wrapper launches the bundled terminal binary inside Terminal.app and forwards any folder paths Finder sends to the app.
+
+For a custom app icon, add either `explorer.icns` or `explorer.png` at the project root before running the script. If a PNG is present, the script converts it to an `.icns` file automatically.
 
 The generated executables are located in the `dist` directory.
 
