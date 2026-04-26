@@ -98,7 +98,7 @@ chmod +x build_macos_app.sh
 
 This creates `dist/Terminal Explorer.app`. The wrapper launches the bundled terminal binary inside Terminal.app and forwards any folder paths Finder sends to the app.
 
-For a custom app icon, add either `explorer.icns` or `explorer.png` at the project root before running the script. If a PNG is present, the script converts it to an `.icns` file automatically.
+For a custom app icon, add `explorer.icns`, `explorer.png`, or `explorer.ico` at the project root before running the script. If a PNG or ICO is present, the script converts it to an `.icns` file automatically.
 
 The generated executables are located in the `dist` directory.
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from rich.control import Control
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Header, Footer, DataTable, Static, Label, Input, Button, Tree
@@ -12,6 +13,7 @@ import os
 import shutil
 import sys
 import datetime
+import time
 import send2trash
 from clipboard_helpers import ClipboardManager, OperationHistory
 
@@ -309,6 +311,8 @@ class FileList(DataTable):
     def on_mount(self) -> None:
         self.cursor_type = "row"
         self.add_columns("Name", "Size", "Date Modified", "Type")
+        self._last_click_time = 0.0
+        self._last_click_row: str | None = None
 
     def on_click(self, event: events.Click) -> None:
         if event.button == 3: 
@@ -319,10 +323,18 @@ class FileList(DataTable):
             event.stop()
             return 
 
-        if event.button == 1 and hasattr(event, "chain") and event.chain == 2:
-            if self.cursor_coordinate:
-                row_key = self.coordinate_to_cell_key(self.cursor_coordinate).row_key
-                self.parent.on_file_double_clicked(row_key.value)
+        row_index = event.style.meta.get("row") if event.style else None
+        if event.button == 1 and row_index is not None and row_index >= 0:
+            row_key = self.ordered_rows[row_index].key.value
+            clicked_at = time.monotonic()
+            if self._last_click_row == row_key and clicked_at - self._last_click_time <= 0.5:
+                self._last_click_row = None
+                self._last_click_time = 0.0
+                self.parent.on_file_double_clicked(row_key)
+                return
+
+            self._last_click_row = row_key
+            self._last_click_time = clicked_at
 
 class FilePane(Container):
     """A self-contained file explorer pane with toolbar and list."""
@@ -834,6 +846,10 @@ class ExplorerApp(App):
         self.title = "Terminal Explorer"
         self.file_clipboard = ClipboardManager()
         self.history = OperationHistory()
+        self.console.print(Control.show_cursor(False), end="")
+
+    def on_unmount(self) -> None:
+        self.console.print(Control.show_cursor(True), end="")
 
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
         """Update the active pane when a sidebar node is clicked."""

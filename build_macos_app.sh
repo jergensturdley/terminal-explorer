@@ -12,7 +12,9 @@ RESOURCE_BIN="$APP_DIR/Contents/Resources/$BINARY_NAME"
 PLIST="$APP_DIR/Contents/Info.plist"
 ICON_SOURCE_PNG="$ROOT_DIR/explorer.png"
 ICON_SOURCE_ICNS="$ROOT_DIR/explorer.icns"
+ICON_SOURCE_ICO="$ROOT_DIR/explorer.ico"
 GENERATED_ICNS="$ROOT_DIR/build/terminal-explorer.icns"
+GENERATED_PNG="$ROOT_DIR/build/terminal-explorer-icon.png"
 
 require_file() {
     local path="$1"
@@ -27,7 +29,7 @@ generate_icns() {
     local png_path="$1"
     local icns_path="$2"
     local iconset_dir
-    iconset_dir="$(mktemp -d "$ROOT_DIR/build/iconset.XXXXXX")"
+    iconset_dir="$(mktemp -d "$ROOT_DIR/build/iconset.XXXXXX.iconset")"
 
     mkdir -p "$iconset_dir"
     sips -z 16 16 "$png_path" --out "$iconset_dir/icon_16x16.png" >/dev/null
@@ -39,7 +41,7 @@ generate_icns() {
     sips -z 256 256 "$png_path" --out "$iconset_dir/icon_256x256.png" >/dev/null
     sips -z 512 512 "$png_path" --out "$iconset_dir/icon_256x256@2x.png" >/dev/null
     sips -z 512 512 "$png_path" --out "$iconset_dir/icon_512x512.png" >/dev/null
-    cp "$png_path" "$iconset_dir/icon_512x512@2x.png"
+    sips -z 1024 1024 "$png_path" --out "$iconset_dir/icon_512x512@2x.png" >/dev/null
     iconutil -c icns "$iconset_dir" -o "$icns_path"
     rm -rf "$iconset_dir"
 }
@@ -53,6 +55,7 @@ apply_app_metadata() {
         /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string com.jergensturdley.terminalexplorer" "$PLIST"
     /usr/libexec/PlistBuddy -c "Set :NSHighResolutionCapable true" "$PLIST" 2>/dev/null || \
         /usr/libexec/PlistBuddy -c "Add :NSHighResolutionCapable bool true" "$PLIST"
+    /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$PLIST" 2>/dev/null || true
 
     /usr/libexec/PlistBuddy -c "Delete :CFBundleDocumentTypes" "$PLIST" 2>/dev/null || true
     /usr/libexec/PlistBuddy -c "Add :CFBundleDocumentTypes array" "$PLIST"
@@ -74,14 +77,20 @@ attach_icon_if_available() {
         mkdir -p "$ROOT_DIR/build"
         generate_icns "$ICON_SOURCE_PNG" "$GENERATED_ICNS"
         icon_path="$GENERATED_ICNS"
+    elif [[ -f "$ICON_SOURCE_ICO" ]]; then
+        mkdir -p "$ROOT_DIR/build"
+        sips -s format png "$ICON_SOURCE_ICO" --out "$GENERATED_PNG" >/dev/null
+        generate_icns "$GENERATED_PNG" "$GENERATED_ICNS"
+        icon_path="$GENERATED_ICNS"
     fi
 
     if [[ -n "$icon_path" ]]; then
         cp "$icon_path" "$APP_DIR/Contents/Resources/AppIcon.icns"
+        cp "$icon_path" "$APP_DIR/Contents/Resources/droplet.icns"
         /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile AppIcon" "$PLIST" 2>/dev/null || \
             /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$PLIST"
     else
-        echo "No explorer.icns or explorer.png found; building app with the default icon."
+        echo "No explorer.icns, explorer.png, or explorer.ico found; building app with the default icon."
     fi
 }
 
