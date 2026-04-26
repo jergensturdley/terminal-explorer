@@ -100,6 +100,16 @@ This creates `dist/Terminal Explorer.app`. The wrapper launches the bundled term
 
 For a custom app icon, add `explorer.icns`, `explorer.png`, or `explorer.ico` at the project root before running the script. If a PNG or ICO is present, the script converts it to an `.icns` file automatically.
 
+### macOS Release DMG
+To package the macOS app bundle in a drag-to-install disk image, run:
+
+```bash
+chmod +x build_macos_dmg.sh
+./build_macos_dmg.sh
+```
+
+This rebuilds the app wrapper if needed and creates `dist/terminal-explorer-macos.dmg` containing `Terminal Explorer.app` and an `Applications` shortcut.
+
 The generated executables are located in the `dist` directory.
 
 ## License
