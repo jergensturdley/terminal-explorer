@@ -2,6 +2,43 @@
 
 A Textual based terminal file explorer with dual pane support.
 
+## Requirements
+- Python 3.10 or newer
+- `pip`
+- A terminal with Unicode support
+
+## Run On macOS
+1. Create and activate a virtual environment:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+2. Install dependencies:
+   ```bash
+   python3 -m pip install -r requirements.txt
+   ```
+3. Start the app:
+   ```bash
+   python3 explorer.py
+   ```
+
+## Run On Linux
+1. Create and activate a virtual environment:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+2. Install dependencies:
+   ```bash
+   python3 -m pip install -r requirements.txt
+   ```
+3. Start the app:
+   ```bash
+   python3 explorer.py
+   ```
+
+If your Linux distribution uses Wayland or does not already provide clipboard helpers, install one of `wl-clipboard`, `xclip`, or `xsel` if clipboard actions do not work as expected in your terminal session.
+
 ## Features
 - Dual pane file navigation
 - Clipboard integration
@@ -22,4 +59,3 @@ The generated executables are located in the `dist` directory.
 
 ## License
 This project is licensed under the GNU General Public License v3.0. See the `LICENSE` file for details.
-# terminal-explorer
