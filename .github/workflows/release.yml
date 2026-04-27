@@ -60,13 +60,15 @@ jobs:
           chmod +x build_macos_app.sh build_macos_dmg.sh
           ./build_macos_dmg.sh
 
-      - name: Confirm macOS app is unsigned
+      - name: Confirm macOS app is ad-hoc signed
         run: |
-          if codesign --verify --deep --strict "dist/Terminal Explorer.app"; then
-            echo "Expected unsigned app, but codesign verification succeeded."
+          codesign --verify --deep --strict "dist/Terminal Explorer.app"
+          SIGNING_AUTHORITY=$(codesign -dvv "dist/Terminal Explorer.app" 2>&1 | grep '^Authority=' || true)
+          if [ "$SIGNING_AUTHORITY" != "Authority=adhoc" ]; then
+            echo "Expected ad-hoc signing, got: ${SIGNING_AUTHORITY:-<none>}"
             exit 1
           fi
-          echo "Confirmed macOS app is unsigned."
+          echo "Confirmed macOS app is ad-hoc signed."
 
       - name: Zip macOS app bundle
         run: ditto -c -k --sequesterRsrc --keepParent "dist/Terminal Explorer.app" "dist/Terminal Explorer-macos-app.zip"
