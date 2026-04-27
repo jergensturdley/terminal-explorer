@@ -78,14 +78,18 @@ python test_all.py
 The active test suite uses `pytest` and lives in `tests/`. Older script-style tests are kept in `legacy_tests/` for reference.
 
 ## Building
+Release metadata is read from `VERSION`. Update that file before cutting a new release.
+
 Two build options are provided:
 1. **Single‑file executable** (slow start, easy distribution)
    ```powershell
-   pyinstaller --onefile --console --icon=explorer.ico --name="Terminal Explorer" explorer.py
+   python build_windows_version_info.py
+   pyinstaller --onefile --console --icon=explorer.ico --version-file=build\windows_version_info.txt --name="Terminal Explorer" explorer.py
    ```
 2. **Fast folder build** (quick start, requires distributing the folder)
    ```powershell
-   pyinstaller --onedir --console --icon=explorer.ico --name="Terminal Explorer Fast" explorer.py
+   python build_windows_version_info.py
+   pyinstaller --onedir --console --icon=explorer.ico --version-file=build\windows_version_info.txt --name="Terminal Explorer Fast" explorer.py
    ```
 
 ### macOS App Wrapper
@@ -97,6 +101,8 @@ chmod +x build_macos_app.sh
 ```
 
 This creates `dist/Terminal Explorer.app`. The wrapper launches the bundled terminal binary inside Terminal.app and forwards any folder paths Finder sends to the app.
+
+The macOS bundle version metadata is read from `VERSION` and written to `CFBundleShortVersionString` and `CFBundleVersion` during the build.
 
 For a custom app icon, add `explorer.icns`, `explorer.png`, or `explorer.ico` at the project root before running the script. If a PNG or ICO is present, the script converts it to an `.icns` file automatically.
 
@@ -116,6 +122,8 @@ xattr -d com.apple.quarantine '/Applications/Terminal Explorer.app'
 ```
 
 The generated executables are located in the `dist` directory.
+
+Release artifacts are intentionally unsigned and are not notarized. On macOS or Windows, users may need to approve running the app through the operating system's security prompts.
 
 ## License
 This project is licensed under the GNU General Public License v3.0. See the `LICENSE` file for details.

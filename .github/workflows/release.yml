@@ -1,0 +1,176 @@
+name: Build Unsigned Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compile Python files
+        run: python -m compileall -q .
+
+      - name: Run tests
+        run: python test_all.py
+
+  build-macos:
+    name: Build macOS DMG
+    runs-on: macos-14
+    needs: test
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Create build virtual environment
+        run: |
+          python -m venv .venv
+          ./.venv/bin/python -m pip install --upgrade pip
+          ./.venv/bin/python -m pip install -r requirements.txt pyinstaller
+
+      - name: Build unsigned macOS DMG
+        run: |
+          chmod +x build_macos_app.sh build_macos_dmg.sh
+          ./build_macos_dmg.sh
+
+      - name: Confirm macOS app is unsigned
+        run: |
+          if codesign --verify --deep --strict "dist/Terminal Explorer.app"; then
+            echo "Expected unsigned app, but codesign verification succeeded."
+            exit 1
+          fi
+          echo "Confirmed macOS app is unsigned."
+
+      - name: Zip macOS app bundle
+        run: ditto -c -k --sequesterRsrc --keepParent "dist/Terminal Explorer.app" "dist/Terminal Explorer-macos-app.zip"
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-explorer-macos
+          path: |
+            dist/terminal-explorer-macos.dmg
+            dist/Terminal Explorer-macos-app.zip
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows EXE
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build unsigned Windows executable
+        shell: pwsh
+        run: |
+          python build_windows_version_info.py
+          pyinstaller --clean --noconfirm --onefile --console --icon=explorer.ico --version-file=build\windows_version_info.txt --name="Terminal Explorer" explorer.py
+          Compress-Archive -Path "dist\Terminal Explorer.exe" -DestinationPath "dist\terminal-explorer-windows.zip" -Force
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-explorer-windows
+          path: |
+            dist/Terminal Explorer.exe
+            dist/terminal-explorer-windows.zip
+          if-no-files-found: error
+
+  build-linux:
+    name: Build Linux Binary
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build unsigned Linux executable
+        run: |
+          pyinstaller --clean --noconfirm --onefile --console --name terminal-explorer-linux explorer.py
+          tar -C dist -czf dist/terminal-explorer-linux.tar.gz terminal-explorer-linux
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-explorer-linux
+          path: |
+            dist/terminal-explorer-linux
+            dist/terminal-explorer-linux.tar.gz
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs:
+      - build-macos
+      - build-windows
+      - build-linux
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Publish unsigned release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: |
+            These release artifacts are intentionally unsigned and are not notarized.
+          files: |
+            release-artifacts/terminal-explorer-macos.dmg
+            release-artifacts/Terminal Explorer-macos-app.zip
+            release-artifacts/Terminal Explorer.exe
+            release-artifacts/terminal-explorer-windows.zip
+            release-artifacts/terminal-explorer-linux
+            release-artifacts/terminal-explorer-linux.tar.gz
+          generate_release_notes: true

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import subprocess
+from pathlib import Path
+from urllib.parse import quote
 from rich.control import Control
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
@@ -83,25 +86,62 @@ class PropertiesScreen(ModalScreen):
     def __init__(self, path: str):
         super().__init__()
         self.path = path
+        self.properties: dict[str, str] = {}
 
-    def compose(self) -> ComposeResult:
+    def _load_properties(self) -> dict[str, str]:
         stats = os.stat(self.path)
         created = datetime.datetime.fromtimestamp(stats.st_ctime).strftime("%Y-%m-%d %H:%M:%S")
         modified = datetime.datetime.fromtimestamp(stats.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-        size = f"{stats.st_size:,} bytes"
+        accessed = datetime.datetime.fromtimestamp(stats.st_atime).strftime("%Y-%m-%d %H:%M:%S")
+        item_type = "Folder" if os.path.isdir(self.path) else os.path.splitext(self.path)[1].upper()[1:] or "File"
+        return {
+            "Name": os.path.basename(self.path) or self.path,
+            "Path": self.path,
+            "Parent": os.path.dirname(self.path),
+            "Type": item_type,
+            "Size": f"{stats.st_size:,} bytes",
+            "Created": created,
+            "Modified": modified,
+            "Accessed": accessed,
+        }
+
+    def _summary(self) -> str:
+        return "\n".join(f"{key}: {value}" for key, value in self.properties.items())
+
+    def compose(self) -> ComposeResult:
+        self.properties = self._load_properties()
         
         yield Container(
-            Label(f"Properties: {os.path.basename(self.path)}", classes="title"),
-            Label(f"Path: {self.path}"),
-            Label(f"Size: {size}"),
-            Label(f"Created: {created}"),
-            Label(f"Modified: {modified}"),
+            Label(f"Properties: {self.properties['Name']}", classes="title"),
+            Label(f"Path: {self.properties['Path']}"),
+            Label(f"Parent: {self.properties['Parent']}"),
+            Label(f"Type: {self.properties['Type']}"),
+            Label(f"Size: {self.properties['Size']}"),
+            Label(f"Created: {self.properties['Created']}"),
+            Label(f"Modified: {self.properties['Modified']}"),
+            Label(f"Accessed: {self.properties['Accessed']}"),
+            Horizontal(
+                Button("Copy Path", id="copy_path", variant="default"),
+                Button("Copy Name", id="copy_name", variant="default"),
+                Button("Copy All", id="copy_all", variant="default"),
+                classes="buttons"
+            ),
             Button("Close", id="close", variant="primary"),
             id="properties_dialog"
         )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        self.dismiss()
+        if event.button.id == "copy_path":
+            self.app.copy_to_clipboard(self.properties["Path"])
+            self.app.notify("Copied property: Path")
+        elif event.button.id == "copy_name":
+            self.app.copy_to_clipboard(self.properties["Name"])
+            self.app.notify("Copied property: Name")
+        elif event.button.id == "copy_all":
+            self.app.copy_to_clipboard(self._summary())
+            self.app.notify("Copied all properties")
+        else:
+            self.dismiss()
 
 class SystemTree(Tree[dict]):
     def __init__(self):
@@ -182,25 +222,52 @@ class SystemTree(Tree[dict]):
                  self.show_context_menu(event.screen_x, event.screen_y)
 
     def show_context_menu(self, x: int, y: int) -> None:
+        submenus = {
+            "copy_as": [
+                ("copy_name", "Name", "default"),
+                ("copy", "Full Path", "default"),
+                ("copy_parent", "Parent Folder Path", "default"),
+                ("copy_uri", "File URI", "default"),
+                ("copy_properties", "Properties Summary", "default"),
+            ]
+        }
+
+        def node_path() -> str | None:
+            if self.cursor_node and self.cursor_node.data:
+                return self.cursor_node.data.get("path")
+            return None
+
         def handle_action(action: str | None) -> None:
-            if action == "open":
+            if not action:
+                return
+            path = node_path()
+            if action.startswith("submenu:"):
+                self.app.push_screen(ContextMenu(submenus.get(action.split(":", 1)[1], []), x + 2, y + 2), handle_action)
+            elif action == "open":
                 if self.cursor_node: self.cursor_node.expand()
-            elif action == "copy":
-                 if self.cursor_node and self.cursor_node.data:
-                    path = self.cursor_node.data.get("path")
-                    if path:
-                        self.app.copy_to_clipboard(path)
-                        self.app.notify(f"Copied: {path}")
-            elif action == "term":
-                 if self.cursor_node and self.cursor_node.data:
-                    path = self.cursor_node.data.get("path")
-                    if path:
-                         self.app.action_open_external_terminal(path)
+            elif action == "copy" and path:
+                self.app.copy_path_detail(path, "path")
+            elif action == "copy_name" and path:
+                self.app.copy_path_detail(path, "name")
+            elif action == "copy_parent" and path:
+                self.app.copy_path_detail(path, "parent")
+            elif action == "copy_uri" and path:
+                self.app.copy_path_detail(path, "uri")
+            elif action == "copy_properties" and path:
+                self.app.copy_path_detail(path, "properties")
+            elif action == "reveal" and path:
+                self.app.reveal_path(path)
+            elif action == "share" and path:
+                self.app.share_path(path)
+            elif action == "term" and path:
+                self.app.action_open_external_terminal(path)
 
         items = [
             ("open", "Expand/Open", "default"),
-            ("copy", "Copy Path", "default"),
-            ("term", "Open Terminal", "default")
+            ("reveal", "Reveal in Finder/Explorer", "default"),
+            ("share", "Share...", "default"),
+            ("submenu:copy_as", "Copy As... ▶", "default"),
+            ("term", "Open Terminal", "default"),
         ]
         self.app.push_screen(ContextMenu(items, x, y), handle_action)
 
@@ -364,15 +431,12 @@ class FilePane(Container):
         items = [
             ("open", "Open", "default"),
             ("open_with", "Open With...", "default"),
-            ("copy_file", "Copy", "default"),
-            ("cut_file", "Cut", "default"),
-            ("paste_file", "Paste", "default"),
-            ("duplicate", "Duplicate", "default"),
-            ("rename", "Rename", "default"),
-            ("delete", "Delete", "error"),
+            ("reveal", "Reveal in Finder/Explorer", "default"),
+            ("share", "Share...", "default"),
+            ("submenu:edit", "Edit ▶", "default"),
+            ("submenu:copy_as", "Copy As... ▶", "default"),
+            ("submenu:more", "More ▶", "default"),
             ("properties", "Properties", "default"),
-            ("copy_path", "Copy Path", "default"),
-            ("term", "Open Terminal", "default")
         ]
         self.show_menu(items, x, y)
 
@@ -380,37 +444,88 @@ class FilePane(Container):
         items = [
             ("refresh", "Refresh", "default"),
             ("paste_file", "Paste", "default"),
-            ("new_file", "New File", "primary"),
-            ("new_folder", "New Folder", "primary"),
-            ("term_here", "Open Terminal", "default")
+            ("submenu:new", "New ▶", "primary"),
+            ("submenu:copy_here", "Copy Current Folder As... ▶", "default"),
+            ("term_here", "Open Terminal Here", "default"),
         ]
         self.show_menu(items, x, y)
 
     def show_menu(self, items, x, y):
+        submenus = {
+            "edit": [
+                ("copy_file", "Copy", "default"),
+                ("cut_file", "Cut", "default"),
+                ("paste_file", "Paste", "default"),
+                ("duplicate", "Duplicate", "default"),
+                ("rename", "Rename", "default"),
+                ("delete", "Move to Trash", "error"),
+            ],
+            "copy_as": [
+                ("copy_name", "Name", "default"),
+                ("copy_path", "Full Path", "default"),
+                ("copy_parent", "Parent Folder Path", "default"),
+                ("copy_uri", "File URI", "default"),
+                ("copy_properties", "Properties Summary", "default"),
+            ],
+            "more": [
+                ("open_containing", "Open Containing Folder", "default"),
+                ("term", "Open Terminal Here", "default"),
+                ("compress_zip", "Compress to ZIP", "default"),
+                ("checksum_sha256", "Copy SHA-256", "default"),
+                ("touch", "Touch / Update Modified Time", "default"),
+                ("make_executable", "Make Executable", "default"),
+            ],
+            "new": [
+                ("new_file", "New File", "primary"),
+                ("new_folder", "New Folder", "primary"),
+            ],
+            "copy_here": [
+                ("copy_current_name", "Folder Name", "default"),
+                ("copy_current_path", "Full Path", "default"),
+                ("copy_current_parent", "Parent Folder Path", "default"),
+                ("copy_current_uri", "File URI", "default"),
+            ],
+        }
+
         def handle_action(action: str | None) -> None:
-            if action == "open": self.action_open_selected()
+            if not action:
+                return
+            if action.startswith("submenu:"):
+                submenu = submenus.get(action.split(":", 1)[1], [])
+                self.show_menu(submenu, x + 2, y + 2)
+            elif action == "open": self.action_open_selected()
             elif action == "open_with": self.action_open_with()
             elif action == "properties": self.action_properties()
             elif action == "rename": self.action_rename_file()
             elif action == "duplicate": self.action_duplicate_file()
             elif action == "delete": self.action_delete_file()
             elif action == "copy_path": self.action_copy_path()
+            elif action == "copy_name": self.action_copy_name()
+            elif action == "copy_parent": self.action_copy_parent_path()
+            elif action == "copy_uri": self.action_copy_uri()
+            elif action == "copy_properties": self.action_copy_properties_summary()
+            elif action == "copy_current_name": self.app.copy_path_detail(self.current_path, "name")
+            elif action == "copy_current_path": self.app.copy_path_detail(self.current_path, "path")
+            elif action == "copy_current_parent": self.app.copy_path_detail(self.current_path, "parent")
+            elif action == "copy_current_uri": self.app.copy_path_detail(self.current_path, "uri")
             elif action == "copy_file": self.app.action_copy_files()
             elif action == "cut_file": self.app.action_cut_files()
             elif action == "paste_file": self.app.action_paste_files()
             elif action == "refresh": self.update_file_list(self.current_path, add_to_history=False)
             elif action == "new_file": self.action_new_file()
             elif action == "new_folder": self.action_new_folder()
+            elif action == "reveal": self.action_reveal_selected()
+            elif action == "share": self.action_share_selected()
+            elif action == "open_containing": self.action_open_containing_folder()
+            elif action == "compress_zip": self.action_compress_zip()
+            elif action == "checksum_sha256": self.action_checksum_sha256()
+            elif action == "touch": self.action_touch()
+            elif action == "make_executable": self.action_make_executable()
             elif action == "term_here": self.app.action_open_external_terminal(self.current_path)
             elif action == "term": 
-                table = self.query_one(FileList)
-                path = self.current_path
-                if table.row_count:
-                    try:
-                        sel = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
-                        if os.path.isdir(sel): path = sel
-                    except Exception:
-                        path = self.current_path
+                path = self._selected_path_or_current()
+                if not os.path.isdir(path):
+                    path = os.path.dirname(path)
                 self.app.action_open_external_terminal(path)
         
         self.app.push_screen(ContextMenu(items, x, y), handle_action)
@@ -489,15 +604,129 @@ class FilePane(Container):
         except Exception as e:
             self.app.notify(f"Error opening item: {e}", severity="error")
 
-    def action_copy_path(self) -> None:
+    def _selected_path(self) -> str | None:
         table = self.query_one(FileList)
-        if not table.row_count: return
+        if not table.row_count:
+            return None
+        return table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+
+    def _selected_path_or_current(self) -> str:
         try:
-            path = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
-            self.app.copy_to_clipboard(path)
-            self.app.notify(f"Copied path: {path}")
+            return self._selected_path() or self.current_path
+        except Exception:
+            return self.current_path
+
+    def action_copy_path(self) -> None:
+        try:
+            path = self._selected_path()
+            if not path: return
+            self.app.copy_path_detail(path, "path")
         except Exception as e:
             self.app.notify(f"Error copying path: {e}", severity="error")
+
+    def action_copy_name(self) -> None:
+        try:
+            path = self._selected_path()
+            if not path: return
+            self.app.copy_path_detail(path, "name")
+        except Exception as e:
+            self.app.notify(f"Error copying name: {e}", severity="error")
+
+    def action_copy_parent_path(self) -> None:
+        try:
+            path = self._selected_path()
+            if not path: return
+            self.app.copy_path_detail(path, "parent")
+        except Exception as e:
+            self.app.notify(f"Error copying parent path: {e}", severity="error")
+
+    def action_copy_uri(self) -> None:
+        try:
+            path = self._selected_path()
+            if not path: return
+            self.app.copy_path_detail(path, "uri")
+        except Exception as e:
+            self.app.notify(f"Error copying URI: {e}", severity="error")
+
+    def action_copy_properties_summary(self) -> None:
+        try:
+            path = self._selected_path()
+            if not path: return
+            self.app.copy_path_detail(path, "properties")
+        except Exception as e:
+            self.app.notify(f"Error copying properties: {e}", severity="error")
+
+    def action_reveal_selected(self) -> None:
+        path = self._selected_path()
+        if path:
+            self.app.reveal_path(path)
+
+    def action_share_selected(self) -> None:
+        path = self._selected_path()
+        if path:
+            self.app.share_path(path)
+
+    def action_open_containing_folder(self) -> None:
+        path = self._selected_path()
+        if path:
+            self.app.open_containing_folder(path)
+
+    def action_compress_zip(self) -> None:
+        path = self._selected_path()
+        if not path:
+            return
+        try:
+            base_name = os.path.join(os.path.dirname(path), os.path.basename(path))
+            archive = shutil.make_archive(base_name, "zip", os.path.dirname(path), os.path.basename(path))
+            if hasattr(self.app, "history"):
+                self.app.history.record("create_file", path=archive)
+            self.app.notify(f"Created ZIP: {os.path.basename(archive)}")
+            self.update_file_list(self.current_path, add_to_history=False)
+        except Exception as e:
+            self.app.notify(f"Error creating ZIP: {e}", severity="error")
+
+    def action_checksum_sha256(self) -> None:
+        path = self._selected_path()
+        if not path:
+            return
+        if os.path.isdir(path):
+            self.app.notify("SHA-256 is available for files only", severity="warning")
+            return
+        try:
+            digest = hashlib.sha256()
+            with open(path, "rb") as file:
+                for chunk in iter(lambda: file.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            value = digest.hexdigest()
+            self.app.copy_to_clipboard(value)
+            self.app.notify(f"Copied SHA-256: {value[:12]}…")
+        except Exception as e:
+            self.app.notify(f"Error calculating SHA-256: {e}", severity="error")
+
+    def action_touch(self) -> None:
+        path = self._selected_path()
+        if not path:
+            return
+        try:
+            os.utime(path, None)
+            self.app.notify(f"Updated modified time: {os.path.basename(path)}")
+            self.update_file_list(self.current_path, add_to_history=False)
+        except Exception as e:
+            self.app.notify(f"Error touching item: {e}", severity="error")
+
+    def action_make_executable(self) -> None:
+        path = self._selected_path()
+        if not path:
+            return
+        if os.name == "nt":
+            self.app.notify("Executable permissions are not supported on Windows", severity="warning")
+            return
+        try:
+            mode = os.stat(path).st_mode
+            os.chmod(path, mode | 0o111)
+            self.app.notify(f"Made executable: {os.path.basename(path)}")
+        except Exception as e:
+            self.app.notify(f"Error changing permissions: {e}", severity="error")
 
     def action_delete_file(self) -> None:
         table = self.query_one(FileList)
@@ -1061,6 +1290,98 @@ class ExplorerApp(App):
         
         self.update_toolbar_state()
     
+    def path_to_file_uri(self, path: str) -> str:
+        return Path(path).resolve().as_uri()
+
+    def format_properties_summary(self, path: str) -> str:
+        stats = os.stat(path)
+        created = datetime.datetime.fromtimestamp(stats.st_ctime).strftime("%Y-%m-%d %H:%M:%S")
+        modified = datetime.datetime.fromtimestamp(stats.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        accessed = datetime.datetime.fromtimestamp(stats.st_atime).strftime("%Y-%m-%d %H:%M:%S")
+        item_type = "Folder" if os.path.isdir(path) else os.path.splitext(path)[1].upper()[1:] or "File"
+        lines = [
+            f"Name: {os.path.basename(path) or path}",
+            f"Path: {path}",
+            f"Parent: {os.path.dirname(path)}",
+            f"Type: {item_type}",
+            f"Size: {stats.st_size:,} bytes",
+            f"Created: {created}",
+            f"Modified: {modified}",
+            f"Accessed: {accessed}",
+        ]
+        return "\n".join(lines)
+
+    def copy_path_detail(self, path: str, detail: str) -> None:
+        labels = {
+            "name": "name",
+            "path": "path",
+            "parent": "parent path",
+            "uri": "file URI",
+            "properties": "properties",
+        }
+        try:
+            if detail == "name":
+                value = os.path.basename(path) or path
+            elif detail == "path":
+                value = path
+            elif detail == "parent":
+                value = os.path.dirname(path)
+            elif detail == "uri":
+                value = self.path_to_file_uri(path)
+            elif detail == "properties":
+                value = self.format_properties_summary(path)
+            else:
+                self.notify(f"Unknown copy detail: {detail}", severity="error")
+                return
+            self.copy_to_clipboard(value)
+            self.notify(f"Copied {labels.get(detail, detail)}")
+        except Exception as e:
+            self.notify(f"Copy failed: {e}", severity="error")
+
+    def reveal_path(self, path: str) -> None:
+        try:
+            if os.name == "nt":
+                subprocess.Popen(["explorer", f"/select,{path}"])
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", "-R", path])
+            else:
+                self.open_containing_folder(path)
+                return
+            self.notify("Revealed item")
+        except Exception as e:
+            self.notify(f"Reveal failed: {e}", severity="error")
+
+    def open_containing_folder(self, path: str) -> None:
+        folder = path if os.path.isdir(path) else os.path.dirname(path)
+        try:
+            self._open_with_default_app(folder)
+            self.notify("Opened containing folder")
+        except Exception as e:
+            self.notify(f"Open containing folder failed: {e}", severity="error")
+
+    def share_path(self, path: str) -> None:
+        """Open the platform share surface where practical, with a reveal fallback."""
+        try:
+            if sys.platform == "darwin":
+                subprocess.Popen([
+                    "osascript",
+                    "-e",
+                    'on run argv\nset theItem to POSIX file (item 1 of argv)\ntell application "Finder" to activate\ntell application "Finder" to select theItem\ntell application "System Events" to keystroke "s" using {command down, shift down}\nend run',
+                    path,
+                ])
+                self.notify("Opened Share menu")
+                return
+            if os.name == "nt":
+                uri = self.path_to_file_uri(path)
+                subprocess.Popen(["powershell", "-NoProfile", "-Command", f"Start-Process 'ms-share:{quote(uri)}'"])
+                self.notify("Opened Windows share")
+                return
+            self.copy_path_detail(path, "uri")
+            self.notify("Copied file URI for sharing")
+        except Exception as e:
+            self.notify(f"Share failed; revealing item instead: {e}", severity="warning")
+            self.reveal_path(path)
+
     def action_redo(self) -> None:
         """Redo last undone operation."""
         op = self.history.redo()

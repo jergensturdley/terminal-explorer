@@ -1,4 +1,5 @@
 import os
+import sys
 
 import pytest
 
@@ -61,9 +62,20 @@ def test_open_with_common_apps():
     image_screen = explorer.OpenWithScreen("example.png")
     pdf_screen = explorer.OpenWithScreen("example.pdf")
 
-    assert any(app_id == "notepad" for app_id, _, _ in text_screen.get_common_apps())
-    assert any(app_id == "paint" for app_id, _, _ in image_screen.get_common_apps())
-    assert any(app_id == "edge" for app_id, _, _ in pdf_screen.get_common_apps())
+    text_apps = {app_id for app_id, _, _ in text_screen.get_common_apps()}
+    image_apps = {app_id for app_id, _, _ in image_screen.get_common_apps()}
+    pdf_apps = {app_id for app_id, _, _ in pdf_screen.get_common_apps()}
+
+    if os.name == "nt":
+        assert "notepad" in text_apps
+        assert "paint" in image_apps
+        assert "edge" in pdf_apps
+    elif sys.platform == "darwin":
+        assert "textedit" in text_apps
+        assert "preview" in image_apps
+        assert "preview" in pdf_apps
+    else:
+        assert "vscode" in text_apps
 
 
 def test_bindings_include_recent_navigation_shortcuts():
