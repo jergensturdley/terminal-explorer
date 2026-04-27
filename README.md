@@ -116,14 +116,24 @@ chmod +x build_macos_dmg.sh
 
 This rebuilds the app wrapper if needed and creates `dist/terminal-explorer-macos.dmg` containing `Terminal Explorer.app` and an `Applications` shortcut.
 
-If macOS claims the app is corrupted:
+The generated macOS app is ad-hoc signed so the bundle is structurally valid, but release artifacts are not notarized. If you download the DMG from GitHub Releases, Gatekeeper may block the installed app the first time you open it.
+
+If you already have an older copy installed, delete `/Applications/Terminal Explorer.app` before dragging the new app from the DMG into `Applications`. This avoids keeping a stale app bundle from an earlier build.
+
+If macOS blocks the app, use one of these options:
+
+1. In Finder, Control-click the app, choose `Open`, then confirm the dialog.
+2. If Gatekeeper still labels it as damaged or corrupted, remove the quarantine attribute recursively:
+
 ```
-xattr -d com.apple.quarantine '/Applications/Terminal Explorer.app'
+xattr -dr com.apple.quarantine '/Applications/Terminal Explorer.app'
 ```
+
+If that still does not work, remove `/Applications/Terminal Explorer.app`, copy the app again from the mounted DMG, and retry the command above.
 
 The generated executables are located in the `dist` directory.
 
-Release artifacts are intentionally unsigned and are not notarized. On macOS or Windows, users may need to approve running the app through the operating system's security prompts.
+Release artifacts are not notarized. The macOS app is ad-hoc signed for bundle integrity checks, but downloaded copies still require a Gatekeeper override unless you add full Developer ID signing and notarization.
 
 ## License
 This project is licensed under the GNU General Public License v3.0. See the `LICENSE` file for details.

@@ -1,4 +1,4 @@
-name: Build Unsigned Release
+name: Build Release Artifacts
 
 on:
   push:
@@ -55,7 +55,7 @@ jobs:
           ./.venv/bin/python -m pip install --upgrade pip
           ./.venv/bin/python -m pip install -r requirements.txt pyinstaller
 
-      - name: Build unsigned macOS DMG
+      - name: Build macOS DMG
         run: |
           chmod +x build_macos_app.sh build_macos_dmg.sh
           ./build_macos_dmg.sh
@@ -100,7 +100,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
-      - name: Build unsigned Windows executable
+      - name: Build Windows executable
         shell: pwsh
         run: |
           python build_windows_version_info.py
@@ -134,7 +134,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
-      - name: Build unsigned Linux executable
+      - name: Build Linux executable
         run: |
           pyinstaller --clean --noconfirm --onefile --console --name terminal-explorer-linux explorer.py
           tar -C dist -czf dist/terminal-explorer-linux.tar.gz terminal-explorer-linux
@@ -163,11 +163,13 @@ jobs:
           path: release-artifacts
           merge-multiple: true
 
-      - name: Publish unsigned release
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           body: |
-            These release artifacts are intentionally unsigned and are not notarized.
+            These release artifacts are not notarized.
+
+            The macOS app bundle is ad-hoc signed for bundle integrity checks, but downloaded copies will still require a Gatekeeper override unless the project is later shipped with Developer ID signing and notarization.
           files: |
             release-artifacts/terminal-explorer-macos.dmg
             release-artifacts/Terminal Explorer-macos-app.zip
