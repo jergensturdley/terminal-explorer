@@ -100,10 +100,12 @@ attach_icon_if_available() {
     fi
 }
 
-remove_code_signatures() {
-    # Releases are intentionally unsigned. PyInstaller/macOS tooling may add
-    # ad-hoc signatures to Mach-O outputs, so strip any signatures best-effort.
+ad_hoc_sign() {
+    # Minimum local macOS signing: an ad-hoc signature. This is enough for
+    # locally built binaries/apps to satisfy code-signing checks without a paid
+    # Developer ID certificate or notarization.
     if ! command -v codesign >/dev/null 2>&1; then
+        echo "codesign not found; leaving macOS artifacts unsigned."
         return
     fi
 
@@ -115,7 +117,8 @@ remove_code_signatures() {
 
     for target in "${targets[@]}"; do
         if [[ -e "$target" ]]; then
-            codesign --remove-signature "$target" 2>/dev/null || true
+            codesign --force --sign - --timestamp=none --deep "$target"
+            codesign --verify --deep --strict --verbose=2 "$target"
         fi
     done
 }
@@ -136,6 +139,6 @@ chmod +x "$RESOURCE_BIN"
 
 apply_app_metadata
 attach_icon_if_available
-remove_code_signatures
+ad_hoc_sign
 
-echo "Built unsigned app wrapper: $APP_DIR"
+echo "Built ad-hoc signed app wrapper: $APP_DIR"

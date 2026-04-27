@@ -13,6 +13,7 @@ from textual.screen import ModalScreen
 from textual.binding import Binding
 from textual import events
 import os
+import re
 import shutil
 import sys
 import datetime
@@ -297,15 +298,26 @@ class ContextMenu(ModalScreen[str]):
         self.items = items
         self.x = x
         self.y = y
+        self._button_actions: dict[str, str] = {}
+
+    @staticmethod
+    def _safe_button_id(action_id: str) -> str:
+        """Convert arbitrary action names into valid Textual widget IDs."""
+        safe_id = re.sub(r"[^A-Za-z0-9_-]", "-", action_id)
+        if not safe_id or safe_id[0].isdigit():
+            safe_id = f"action-{safe_id}"
+        return safe_id
 
     def compose(self) -> ComposeResult:
         with Vertical(id="context-menu") as menu:
             menu.styles.offset = (self.x, self.y)
-            for action_id, label, variant in self.items:
-                yield Button(label, id=action_id, variant=variant)
+            for index, (action_id, label, variant) in enumerate(self.items):
+                button_id = f"{self._safe_button_id(action_id)}-{index}"
+                self._button_actions[button_id] = action_id
+                yield Button(label, id=button_id, variant=variant)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        self.dismiss(event.button.id)
+        self.dismiss(self._button_actions.get(event.button.id or ""))
 
     def on_click(self, event: events.Click) -> None:
         """Dismiss menu on any click."""
