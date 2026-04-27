@@ -63,9 +63,9 @@ jobs:
       - name: Confirm macOS app is ad-hoc signed
         run: |
           codesign --verify --deep --strict "dist/Terminal Explorer.app"
-          SIGNING_AUTHORITY=$(codesign -dvv "dist/Terminal Explorer.app" 2>&1 | grep '^Authority=' || true)
-          if [ "$SIGNING_AUTHORITY" != "Authority=adhoc" ]; then
-            echo "Expected ad-hoc signing, got: ${SIGNING_AUTHORITY:-<none>}"
+          SIGNATURE_KIND=$(codesign -dvv "dist/Terminal Explorer.app" 2>&1 | grep '^Signature=' || true)
+          if [ "$SIGNATURE_KIND" != "Signature=adhoc" ]; then
+            echo "Expected ad-hoc signing, got: ${SIGNATURE_KIND:-<none>}"
             exit 1
           fi
           echo "Confirmed macOS app is ad-hoc signed."
