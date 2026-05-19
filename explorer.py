@@ -215,6 +215,10 @@ class SystemTree(Tree[dict]):
                     node.add(f"📁 {entry.name}", data={"path": entry.path, "is_dir": True, "loaded": False}, allow_expand=True)
             node.data["loaded"] = True
         except PermissionError:
+            self.app.notify(f"Permission denied: {path}", severity="error")
+            node.data["loaded"] = True
+        except OSError as e:
+            self.app.notify(f"Error loading directory {path}: {e}", severity="error")
             node.data["loaded"] = True
 
     def on_click(self, event: events.Click) -> None:
@@ -625,7 +629,8 @@ class FilePane(Container):
     def _selected_path_or_current(self) -> str:
         try:
             return self._selected_path() or self.current_path
-        except Exception:
+        except Exception as e:
+            self.app.notify(f"Error getting selected path: {e}", severity="error")
             return self.current_path
 
     def action_copy_path(self) -> None:
@@ -775,7 +780,8 @@ class FilePane(Container):
         if not table.row_count: return
         try:
             path = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
-        except Exception:
+        except Exception as e:
+            self.app.notify(f"Error getting selected file for rename: {e}", severity="error")
             return
 
         def handle_rename(new_name: str | None) -> None:
@@ -847,10 +853,8 @@ class FilePane(Container):
             self.query_one("#back", Button).disabled = self.history_index <= 0
             self.query_one("#forward", Button).disabled = self.history_index >= len(self.history) - 1
             self.query_one("#address-bar", Input).value = path
-        except Exception:
-            toolbar_available = False
-        else:
-            toolbar_available = True
+        except Exception as e:
+            self.app.notify(f"Error updating toolbar navigation: {e}", severity="error")
 
         table = self.query_one(FileList)
         table.clear()
@@ -870,7 +874,8 @@ class FilePane(Container):
                     icon = "📁" if entry.is_dir() else "📄"
                     
                     table.add_row(f"{icon} {entry.name}", size, modified, file_type, key=entry.path)
-                except Exception:
+                except Exception as e:
+                    self.app.notify(f"Skipping file {entry.name}: {e}", severity="warning")
                     continue
         except PermissionError:
             self.app.notify(f"Permission denied: {path}", severity="error")
@@ -884,7 +889,7 @@ class FilePane(Container):
         if os.name == "nt":
             try:
                 return bool(entry.stat().st_file_attributes & 0x2)
-            except Exception:
+            except OSError:
                 return False
         return False
 
@@ -1110,7 +1115,8 @@ class ExplorerApp(App):
             return focused.first()
         try:
             return self.query_one("#left-pane", FilePane)
-        except Exception:
+        except Exception as e:
+            self.app.notify(f"Error getting active pane: {e}", severity="error")
             return None
 
     def action_delete_file(self) -> None:
@@ -1195,8 +1201,8 @@ class ExplorerApp(App):
             
             redo_btn = self.query_one("#redo", Button)
             redo_btn.disabled = not self.history.can_redo()
-        except Exception:
-            return
+        except Exception as e:
+            self.app.notify(f"Error updating toolbar state: {e}", severity="error")
     
     def action_copy_files(self) -> None:
         """Copy selected files to clipboard."""
