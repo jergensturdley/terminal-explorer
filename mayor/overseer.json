@@ -1,0 +1,8 @@
+{
+  "type": "overseer",
+  "version": 1,
+  "name": "Joe",
+  "email": "joe.turdney@example.com",
+  "username": "joe.turdney",
+  "source": "git-config"
+}
